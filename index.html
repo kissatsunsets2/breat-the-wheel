@@ -59,7 +59,94 @@
 
 <script type="text/babel">
     const { useState, useEffect, useCallback, useMemo, useRef } = React;
-    
+<script type="text/babel">
+    const { useState, useEffect, useCallback, useMemo, useRef } = React;
+// --- 멘션 추천 로직 시작 ---
+const MentionDropdown = ({ users, selectedIndex, onSelect }) => {
+    if (users.length === 0) return null;
+    return (
+        <div className="absolute z-[100] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl max-h-48 overflow-y-auto w-64 mt-1 left-12">
+            {users.map((user, idx) => (
+                <div
+                    key={user.uid}
+                    onClick={() => onSelect(user.handle)}
+                    className={`flex items-center gap-3 p-3 cursor-pointer transition-colors ${
+                        idx === selectedIndex ? 'bg-blue-50 dark:bg-blue-900/30' : 'hover:bg-gray-50 dark:hover:bg-gray-700'
+                    }`}
+                >
+                    <ProfilePictureDisplay profile={user} sizeClass="w-8 h-8" textSizeClass="text-sm" />
+                    <div className="flex flex-col">
+                        <span className="font-bold text-sm dark:text-white leading-tight">{user.name}</span>
+                        <span className="text-gray-500 text-xs">@{user.handle}</span>
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+};
+
+const useMention = (text, setText, textareaRef) => {
+    const [mentionSearch, setMentionSearch] = useState("");
+    const [showMentions, setShowMentions] = useState(false);
+    const [selectedIndex, setSelectedIndex] = useState(0);
+
+    const filteredUsers = useMemo(() => {
+        if (!mentionSearch) return [];
+        return MOCK_USERS.filter(u => 
+            u.handle.toLowerCase().includes(mentionSearch.toLowerCase()) || 
+            u.name.toLowerCase().includes(mentionSearch.toLowerCase())
+        ).slice(0, 5);
+    }, [mentionSearch]);
+
+    const handleInput = (e) => {
+        const value = e.target.value;
+        const cursorPosition = e.target.selectionStart;
+        const textBeforeCursor = value.substring(0, cursorPosition);
+        const words = textBeforeCursor.split(/\s/);
+        const lastWord = words[words.length - 1];
+
+        if (lastWord.startsWith("@")) {
+            setMentionSearch(lastWord.slice(1));
+            setShowMentions(true);
+            setSelectedIndex(0);
+        } else {
+            setShowMentions(false);
+        }
+        setText(value);
+    };
+
+    const handleKeyDown = (e) => {
+        if (!showMentions || filteredUsers.length === 0) return;
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setSelectedIndex(prev => (prev + 1) % filteredUsers.length);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setSelectedIndex(prev => (prev - 1 + filteredUsers.length) % filteredUsers.length);
+        } else if (e.key === 'Enter' || e.key === 'Tab') {
+            e.preventDefault();
+            selectUser(filteredUsers[selectedIndex].handle);
+        } else if (e.key === 'Escape') {
+            setShowMentions(false);
+        }
+    };
+
+    const selectUser = (handle) => {
+        const cursorPosition = textareaRef.current.selectionStart;
+        const textBefore = text.substring(0, cursorPosition);
+        const textAfter = text.substring(cursorPosition);
+        const words = textBefore.split(/\s/);
+        words.pop();
+        const prefix = words.length > 0 ? words.join(" ") + " " : "";
+        setText(`${prefix}@${handle} ${textAfter}`);
+        setShowMentions(false);
+        setTimeout(() => textareaRef.current.focus(), 0);
+    };
+
+    return { showMentions, filteredUsers, selectedIndex, handleInput, handleKeyDown, selectUser };
+};
+// --- 멘션 추천 로직 끝
+
     // 유틸리티 함수: SHA-256 해시 생성 (비밀번호 보안용)
     const sha256 = async (str) => {
         const buffer = new TextEncoder().encode(str);
@@ -540,6 +627,98 @@ const MOCK_USERS = [
         );
     };
 
+const PostEditor = ({ onPost, currentUserProfile, currentUserId }) => {
+    const [text, setText] = useState('');
+    const [images, setImages] = useState([]);
+    const textareaRef = useRef(null);
+
+    // 멘션 훅 연결
+    const { 
+        showMentions, 
+        filteredUsers, 
+        selectedIndex, 
+        handleInput, 
+        handleKeyDown, 
+        selectUser 
+    } = useMention(text, setText, textareaRef);
+
+    const handleSubmit = () => {
+        if (text.trim() || images.length > 0) {
+            onPost(text, images);
+            setText('');
+            setImages([]);
+        }
+    };
+
+    const handleImageChange = (e) => {
+        const files = Array.from(e.target.files);
+        const newImages = files.map(file => URL.createObjectURL(file));
+        setImages(prev => [...prev, ...newImages]);
+    };
+
+    return (
+        <div className="p-4 border-b border-gray-200 dark:border-gray-800 relative">
+            <div className="flex space-x-4">
+                <ProfilePictureDisplay profile={currentUserProfile || {}} />
+                <div className="flex-1 relative">
+                    <textarea
+                        ref={textareaRef}
+                        value={text}
+                        onChange={handleInput}
+                        onKeyDown={handleKeyDown}
+                        className="w-full text-xl bg-transparent border-none focus:ring-0 resize-none dark:text-white"
+                        placeholder="무슨 일이 일어나고 있나요?"
+                        rows="2"
+                    />
+                    
+                    {/* 멘션 드롭다운 */}
+                    {showMentions && (
+                        <MentionDropdown 
+                            users={filteredUsers} 
+                            selectedIndex={selectedIndex} 
+                            onSelect={selectUser} 
+                        />
+                    )}
+
+                    {images.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                            {images.map((img, index) => (
+                                <div key={index} className="relative">
+                                    <img src={img} className="w-20 h-20 object-cover rounded-lg" />
+                                    <button 
+                                        onClick={() => setImages(images.filter((_, i) => i !== index))}
+                                        className="absolute top-0 right-0 bg-black/50 text-white rounded-full p-1"
+                                    >
+                                        {typeof X === 'string' ? <span>{X}</span> : <X size={14} />}
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    
+                    <div className="flex justify-between items-center mt-4 border-t border-gray-100 dark:border-gray-800 pt-2">
+                        <div className="flex space-x-2 text-blue-400">
+                            <label className="p-2 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-full cursor-pointer transition-colors">
+                                {typeof Image === 'string' ? <span>{Image}</span> : <Image size={20} />}
+                                <input type="file" multiple accept="image/*" className="hidden" onChange={handleImageChange} />
+                            </label>
+                            <button className="p-2 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-full transition-colors">
+                                {typeof Smile === 'undefined' ? '😊' : <Smile size={20} />}
+                            </button>
+                        </div>
+                        <button
+                            onClick={handleSubmit}
+                            disabled={!text.trim() && images.length === 0}
+                            className="bg-blue-500 text-white px-4 py-1.5 rounded-full font-bold hover:bg-blue-600 disabled:opacity-50 transition-colors"
+                        >
+                            게시하기
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
 
     const DeleteConfirmationModal = ({ post, onConfirm, onCancel }) => {
         if (!post) return null;
@@ -1342,6 +1521,7 @@ const App = () => {
         const [auth, setAuth] = useState(null);
         const [currentUserId, setCurrentUserId] = useState(getInitialActiveUser());
         const [posts, setPosts] = useState([]);
+const [expandedThreads, setExpandedThreads] = useState([]); // [추가] 펼쳐진 답글 타래 ID 저장
         const [isLoading, setIsLoading] = useState(true);
         const [activeGroup, setActiveGroup] = useState(MOCK_GROUPS[0].id);
         const [newPostId, setNewPostId] = useState(null); 
@@ -1897,10 +2077,88 @@ const App = () => {
                 return mentionPosts;
             }
 
-            if (activeView === 'timeline') {
-                const postsById = new Map(posts.map(p => [p.id, p]));
+if (activeView === 'timeline') {
                 const timelineActivities = [];
-                const processedBranches = new Set(); // 처리된 '가지'를 추적합니다. (첫 번째 댓글 ID 기준)
+                const processedPostIds = new Set(); // 중복 방지용
+
+                // 1. 답글들을 부모 ID별로 분류
+                const threadMap = {};
+                posts.forEach(p => {
+                    if (p.replyTo) {
+                        if (!threadMap[p.replyTo]) threadMap[p.replyTo] = [];
+                        threadMap[p.replyTo].push(p);
+                    }
+                });
+
+                posts.forEach((post) => {
+                    if (processedPostIds.has(post.id)) return;
+
+                    // 해당 글이 부모인 답글들 확인
+                    const thread = threadMap[post.id]; 
+                    
+                    // 답글이 없거나 2개 이하로 적으면 평소처럼 표시
+                    if (!thread || thread.length <= 2) {
+                        timelineActivities.push(<PostItem key={post.id} post={post} />);
+                        processedPostIds.add(post.id);
+                        return;
+                    }
+
+                    // --- [답글 접기 로직] ---
+                    const isExpanded = expandedThreads.includes(post.id);
+                    const firstReply = thread[0];
+                    const lastReply = thread[thread.length - 1];
+                    const middleReplies = thread.slice(1, -1);
+
+                    // 1. 부모 게시글 표시
+                    timelineActivities.push(<PostItem key={post.id} post={post} />);
+                    processedPostIds.add(post.id);
+
+                    // 2. 첫 번째 답글 표시
+                    timelineActivities.push(<PostItem key={firstReply.id} post={firstReply} isReply={true} />);
+                    processedPostIds.add(firstReply.id);
+
+                    if (isExpanded) {
+                        // 펼쳐짐: 중간 답글들 표시
+                        middleReplies.forEach(p => {
+                            timelineActivities.push(<PostItem key={p.id} post={p} isReply={true} />);
+                            processedPostIds.add(p.id);
+                        });
+                    } else {
+                        // 접힘: 버튼 표시
+                        timelineActivities.push(
+                            <div 
+                                key={`expand-thread-${post.id}`}
+                                className="flex items-center ml-16 my-2 cursor-pointer group"
+                                onClick={() => setExpandedThreads([...expandedThreads, post.id])}
+                            >
+                                <div className="flex flex-col items-center mr-4">
+                                    <div className="w-0.5 h-2 bg-gray-200 dark:bg-gray-700"></div>
+                                    <div className="flex flex-col space-y-1 my-1">
+                                        <div className="w-1 h-1 rounded-full bg-gray-400"></div>
+                                        <div className="w-1 h-1 rounded-full bg-gray-400"></div>
+                                        <div className="w-1 h-1 rounded-full bg-gray-400"></div>
+                                    </div>
+                                    <div className="w-0.5 h-2 bg-gray-200 dark:bg-gray-700"></div>
+                                </div>
+                                <span className="text-blue-500 text-sm font-medium hover:bg-blue-50 dark:hover:bg-blue-900/20 px-2 py-1 rounded-lg transition">
+                                    이전 답글 {middleReplies.length}개 더 보기
+                                </span>
+                            </div>
+                        );
+                        middleReplies.forEach(p => processedPostIds.add(p.id));
+                    }
+
+                    // 3. 마지막 답글 표시
+                    timelineActivities.push(<PostItem key={lastReply.id} post={lastReply} isReply={true} />);
+                    processedPostIds.add(lastReply.id);
+                });
+
+                return (
+                    <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                        {timelineActivities}
+                    </div>
+                );
+            } // activeView === 'timeline' 끝
 
                 // 모든 게시물을 최신순으로 순회합니다.
                 for (const latestPostInActivity of posts) {
