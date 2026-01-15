@@ -1132,13 +1132,12 @@ const MOCK_USERS = [
         );
     };
 
-    // [수정됨] 멘션 자동완성 기능이 포함된 ReplyForm
-    const ReplyForm = ({ parentId, onReply, isMainPost = false, currentUserProfile, currentUserId, parentAuthorHandle }) => {
+// [수정됨] 멘션 기능 개선: 리스트 아래로 출력, 닉네임 검색, 최신 프로필 반영
+    const ReplyForm = ({ parentId, onReply, isMainPost = false, currentUserProfile, currentUserId, parentAuthorHandle, availableUsers = [] }) => {
         const [replyContent, setReplyContent] = useState('');
         const [imageUrl, setImageUrl] = useState('');
         const [showImageInput, setShowImageInput] = useState(false);
         
-        // 멘션 관련 상태
         const [mentionQuery, setMentionQuery] = useState('');
         const [showSuggestions, setShowSuggestions] = useState(false);
         const [cursorLocation, setCursorLocation] = useState(0);
@@ -1156,19 +1155,17 @@ const MOCK_USERS = [
             }
         }, [replyContent]);
 
-        // 입력 변화 감지 및 @멘션 트리거 로직
         const handleContentChange = (e) => {
             const text = e.target.value;
             const selectionStart = e.target.selectionStart;
             setReplyContent(text);
             
-            // 커서 바로 앞의 단어 확인
             const textBeforeCursor = text.slice(0, selectionStart);
             const words = textBeforeCursor.split(/\s/);
             const currentWord = words[words.length - 1];
 
             if (currentWord.startsWith('@') && currentWord.length >= 1) {
-                setMentionQuery(currentWord.slice(1).toLowerCase()); // @ 제거하고 검색어 저장
+                setMentionQuery(currentWord.slice(1).toLowerCase());
                 setShowSuggestions(true);
                 setCursorLocation(selectionStart);
             } else {
@@ -1176,12 +1173,9 @@ const MOCK_USERS = [
             }
         };
 
-        // 멘션 선택 시 처리
         const selectUser = (handle) => {
             const textBeforeCursor = replyContent.slice(0, cursorLocation);
             const textAfterCursor = replyContent.slice(textareaRef.current.selectionStart);
-            
-            // 현재 입력 중인 @단어 찾아서 교체
             const lastAtIndex = textBeforeCursor.lastIndexOf('@');
             const newTextBefore = textBeforeCursor.slice(0, lastAtIndex) + `@${handle} `;
             
@@ -1190,20 +1184,15 @@ const MOCK_USERS = [
             textareaRef.current.focus();
         };
         
-        // MOCK_USERS를 기반으로 검색 (실제 앱에서는 모든 유저 프로필 state를 props로 받아오는 것이 좋음)
-        // 여기서는 전역 변수 MOCK_USERS를 사용합니다.
         const filteredUsers = showSuggestions 
-            ? MOCK_USERS.filter(u => 
+            ? availableUsers.filter(u => 
                 u.handle.toLowerCase().includes(mentionQuery) || 
                 u.name.toLowerCase().includes(mentionQuery)
-              ).slice(0, 5) // 최대 5명만 표시
+              ).slice(0, 5) 
             : [];
 
         const formProfile = currentUserProfile || { 
-            profile: '👤', 
-            color: 'bg-gray-500', 
-            handle: '사용자',
-            profileImageUrl: '' 
+            profile: '👤', color: 'bg-gray-500', handle: '사용자', profileImageUrl: '' 
         };
         
         const handleReplySubmit = (e) => {
@@ -1220,9 +1209,9 @@ const MOCK_USERS = [
 
         return (
           <form onSubmit={handleReplySubmit} className={`flex flex-col relative ${isMainPost ? 'px-4 pb-4' : 'px-4 py-3'}`}>
-            {/* 멘션 추천 리스트 팝업 */}
+            {/* 선택창 위치를 아래(top-full)로 변경 */}
             {showSuggestions && filteredUsers.length > 0 && (
-                <div className="absolute bottom-full left-14 mb-2 w-64 bg-white dark:bg-gray-700 rounded-xl shadow-xl border border-gray-200 dark:border-gray-600 z-50 overflow-hidden">
+                <div className="absolute top-full left-14 mt-2 w-64 bg-white dark:bg-gray-700 rounded-xl shadow-xl border border-gray-200 dark:border-gray-600 z-50 overflow-hidden">
                     {filteredUsers.map(user => (
                         <button
                             key={user.uid}
@@ -1230,18 +1219,17 @@ const MOCK_USERS = [
                             onClick={() => selectUser(user.handle)}
                             className="flex items-center w-full px-4 py-3 hover:bg-gray-100 dark:hover:bg-gray-600 transition text-left"
                         >
-                            <div className={`w-8 h-8 rounded-full flex items-center justify-center mr-2 ${user.color} text-white text-xs`}>
-                                {user.profile}
+                            <div className="flex-shrink-0 mr-3">
+                                <ProfilePictureDisplay profile={user} sizeClass="w-8 h-8" textSizeClass="text-xs" />
                             </div>
-                            <div>
-                                <p className="font-bold text-sm text-gray-900 dark:text-white">{user.name}</p>
-                                <p className="text-xs text-gray-500 dark:text-gray-300">@{user.handle}</p>
+                            <div className="overflow-hidden">
+                                <p className="font-bold text-sm text-gray-900 dark:text-white truncate">{user.name}</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-300 truncate">@{user.handle}</p>
                             </div>
                         </button>
                     ))}
                 </div>
             )}
-
             <div className="flex">
                 <div className="mr-3 flex-shrink-0">
                     <ProfilePictureDisplay profile={formProfile} sizeClass="w-10 h-10 mt-2" textSizeClass="text-lg" />
@@ -1249,7 +1237,7 @@ const MOCK_USERS = [
                 <textarea
                     ref={textareaRef}
                     value={replyContent}
-                    onChange={handleContentChange} // 핸들러 변경됨
+                    onChange={handleContentChange}
                     placeholder={isMainPost ? "지금 무슨 일이 일어나고 있나요?" : "답글을 게시하세요."}
                     className="flex-grow p-2 text-base bg-transparent focus:outline-none dark:text-gray-100 resize-none overflow-hidden mt-2"
                     rows="1"
@@ -1257,50 +1245,25 @@ const MOCK_USERS = [
                     maxLength="280" 
                 />
             </div>
-
             <div className="flex flex-col pl-12 pt-2">
                 <div className="flex items-center justify-between mt-1">
-                    <button
-                        type="button"
-                        onClick={() => setShowImageInput(prev => !prev)}
-                        className="flex items-center text-blue-500 hover:text-blue-600 transition text-sm font-medium"
-                    >
+                    <button type="button" onClick={() => setShowImageInput(prev => !prev)} className="flex items-center text-blue-500 hover:text-blue-600 transition text-sm font-medium">
                         {typeof Image === 'string' ? <span className="mr-1">{Image}</span> : <Image size={16} className="mr-1" />}
                         이미지 주소 첨부
                     </button>
-                    <button
-                      type="submit"
-                      className="ml-2 px-4 py-1.5 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition disabled:opacity-50 font-semibold text-sm"
-                      disabled={!currentUserId || (replyContent.trim() === "" && imageUrl.trim() === "")}
-                    >
+                    <button type="submit" className="ml-2 px-4 py-1.5 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition disabled:opacity-50 font-semibold text-sm" disabled={!currentUserId || (replyContent.trim() === "" && imageUrl.trim() === "")}>
                       {isMainPost ? '게시' : '답글'}
                     </button>
                 </div>
-                
                 {showImageInput && (
                     <div className="mt-2 mb-2">
-                        <input
-                            type="url"
-                            value={imageUrl}
-                            onChange={(e) => setImageUrl(e.target.value)}
-                            placeholder="이미지 주소(URL)를 입력하세요."
-                            className="w-full p-2 text-sm border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                        />
+                        <input type="url" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="이미지 주소(URL)를 입력하세요." className="w-full p-2 text-sm border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                     </div>
                 )}
                 {imageUrl && (
                     <div className="mb-2 max-h-40 overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700 relative">
-                        <img 
-                            src={imageUrl} 
-                            alt="미리보기" 
-                            className="w-full object-cover" 
-                            onError={(e) => {e.target.style.display='none';}}
-                        />
-                         <button
-                            type="button"
-                            onClick={() => setImageUrl('')}
-                            className="absolute top-2 right-2 p-1 bg-black bg-opacity-50 text-white rounded-full hover:bg-opacity-75 transition"
-                        >
+                        <img src={imageUrl} alt="미리보기" className="w-full object-cover" onError={(e) => {e.target.style.display='none';}} />
+                         <button type="button" onClick={() => setImageUrl('')} className="absolute top-2 right-2 p-1 bg-black bg-opacity-50 text-white rounded-full hover:bg-opacity-75 transition">
                             {typeof X === 'string' ? <span className="text-xs">{X}</span> : <X size={14} />}
                         </button>
                     </div>
@@ -1310,80 +1273,55 @@ const MOCK_USERS = [
         );
     };
 
-const RecursiveReplies = ({ parentId, allPostProps, posts, postsWithChildren }) => {
-    const childReplies = useMemo(() => 
-        posts.filter(p => p.replyToId === parentId)
-             .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime()),
-        [parentId, posts]
-    );
-
-    return (
-        <div className="pl-0">
-            {childReplies.map((reply, index) => {
-                const hasChildren = postsWithChildren.has(reply.id);
-                
-                // [2. 댓글 스레드 그룹화] - 대댓글의 대댓글은 isThreadView=true로 전달하여 border-b를 제거합니다.
-                // ExpandableReply 내에서 이미 처리했기 때문에 여기서는 isThreadView=true를 고정합니다.
-                return (
-                    <div key={reply.id}>
-                        <PostItem
-                            {...allPostProps}
-                            post={reply}
-                            isThreadView={true} // 스레드 내 하위 댓글로 처리
-                            drawTopLine={true}
-                            drawBottomLine={hasChildren}
-                        />
-                        {hasChildren && <RecursiveReplies parentId={reply.id} allPostProps={allPostProps} posts={posts} postsWithChildren={postsWithChildren}/>}
-                    </div>
-                )
-            })}
-        </div>
-    );
-};
-
-const ExpandableReply = ({ reply, index, replies, allPostProps, posts, postsWithChildren }) => {
-    const [isExpanded, setIsExpanded] = useState(false);
-    const hasChildren = postsWithChildren.has(reply.id);
-
-    const countDescendants = useCallback((postId) => {
-        const children = posts.filter(p => p.replyToId === postId);
-        let count = children.length;
-        children.forEach(child => {
-            count += countDescendants(child.id);
-        });
-        return count;
-    }, [posts]);
-
-    const descendantCount = useMemo(() => hasChildren ? countDescendants(reply.id) : 0, [hasChildren, reply.id, countDescendants]);
-
-
-    return (
-        <div>
-            <PostItem
-                {...allPostProps}
-                post={reply}
-                isThreadView={true} // 스레드 내 직계 댓글로 처리 (PostItem에서 border 결정)
-                drawTopLine={true}
-                drawBottomLine={hasChildren}
-            />
-            {hasChildren && !isExpanded && (
-                <div className="pb-2" onClick={(e) => { e.stopPropagation(); setIsExpanded(true); }}>
-                    <div className="relative pt-1 ml-16 cursor-pointer">
-                        <div className="absolute left-[-26px] top-[-4px] text-center w-5">
-                            <span className="text-gray-400 dark:text-gray-600 text-lg leading-none"></span> {/* 점선 대신 빈 공간 */}
+    const RecursiveReplies = ({ parentId, allPostProps, posts, postsWithChildren }) => {
+        const childReplies = useMemo(() => 
+            posts.filter(p => p.replyToId === parentId)
+                 .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime()),
+            [parentId, posts]
+        );
+        return (
+            <div className="pl-0">
+                {childReplies.map((reply, index) => {
+                    const hasChildren = postsWithChildren.has(reply.id);
+                    return (
+                        <div key={reply.id}>
+                            <PostItem {...allPostProps} post={reply} isThreadView={true} drawTopLine={true} drawBottomLine={hasChildren} />
+                            {hasChildren && <RecursiveReplies parentId={reply.id} allPostProps={allPostProps} posts={posts} postsWithChildren={postsWithChildren}/>}
                         </div>
-                        <span className="text-sm font-semibold text-blue-500 hover:text-blue-600">
-                           {`답글 ${descendantCount}개 보기`}
-                        </span>
+                    )
+                })}
+            </div>
+        );
+    };
+
+    const ExpandableReply = ({ reply, index, replies, allPostProps, posts, postsWithChildren }) => {
+        const [isExpanded, setIsExpanded] = useState(false);
+        const hasChildren = postsWithChildren.has(reply.id);
+        const countDescendants = useCallback((postId) => {
+            const children = posts.filter(p => p.replyToId === postId);
+            let count = children.length;
+            children.forEach(child => { count += countDescendants(child.id); });
+            return count;
+        }, [posts]);
+        const descendantCount = useMemo(() => hasChildren ? countDescendants(reply.id) : 0, [hasChildren, reply.id, countDescendants]);
+        return (
+            <div>
+                <PostItem {...allPostProps} post={reply} isThreadView={true} drawTopLine={true} drawBottomLine={hasChildren} />
+                {hasChildren && !isExpanded && (
+                    <div className="pb-2" onClick={(e) => { e.stopPropagation(); setIsExpanded(true); }}>
+                        <div className="relative pt-1 ml-16 cursor-pointer">
+                            <span className="text-sm font-semibold text-blue-500 hover:text-blue-600">
+                               {`답글 ${descendantCount}개 보기`}
+                            </span>
+                        </div>
                     </div>
-                </div>
-            )}
-            {hasChildren && isExpanded && (
-                 <RecursiveReplies parentId={reply.id} allPostProps={allPostProps} posts={posts} postsWithChildren={postsWithChildren}/>
-            )}
-        </div>
-    );
-};
+                )}
+                {hasChildren && isExpanded && (
+                     <RecursiveReplies parentId={reply.id} allPostProps={allPostProps} posts={posts} postsWithChildren={postsWithChildren}/>
+                )}
+            </div>
+        );
+    };
 
 // [1. 다크 모드 추가] - 토글 버튼 컴포넌트
 const DarkAndLightModeButton = ({ isDarkMode, onToggle }) => {
@@ -1459,6 +1397,22 @@ const App = () => {
                 passwordHash: custom.passwordHash || null, // [2. 프로필 비밀번호]
             };
         }, [currentUserId, mockUserProfile, currentCustomProfile]); 
+
+        const allMergedUsers = useMemo(() => {
+            return MOCK_USERS.map(user => {
+                const custom = allCustomProfiles[user.uid];
+                if (custom) {
+                    return {
+                        ...user,
+                        name: custom.name || user.name,
+                        handle: custom.handle || user.handle,
+                        profileImageUrl: custom.profileImageUrl || user.profileImageUrl,
+                        profile: custom.name ? custom.name[0] : user.profile, 
+                    };
+                }
+                return user;
+            });
+        }, [allCustomProfiles]);
 
         App.currentUserProfile = currentUserProfile; 
         App.currentUserId = currentUserId; 
@@ -2288,6 +2242,7 @@ const App = () => {
                                 isMainPost={true} 
                                 currentUserProfile={currentUserProfile}
                                 currentUserId={currentUserId}
+                                availableUsers={allMergedUsers}
                             />
                         </div>
                     )}
@@ -2335,6 +2290,7 @@ const App = () => {
                                             currentUserProfile={currentUserProfile}
                                             currentUserId={currentUserId}
                                             parentAuthorHandle={threadData.selectedPost.authorHandle}
+                                            availableUsers={allMergedUsers}
                                         />
                                         </div>
 
