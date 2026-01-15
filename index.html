@@ -1132,10 +1132,16 @@ const MOCK_USERS = [
         );
     };
 
+    // [수정됨] 멘션 자동완성 기능이 포함된 ReplyForm
     const ReplyForm = ({ parentId, onReply, isMainPost = false, currentUserProfile, currentUserId, parentAuthorHandle }) => {
         const [replyContent, setReplyContent] = useState('');
         const [imageUrl, setImageUrl] = useState('');
         const [showImageInput, setShowImageInput] = useState(false);
+        
+        // 멘션 관련 상태
+        const [mentionQuery, setMentionQuery] = useState('');
+        const [showSuggestions, setShowSuggestions] = useState(false);
+        const [cursorLocation, setCursorLocation] = useState(0);
         const textareaRef = useRef(null); 
         
         useEffect(() => {
@@ -1149,7 +1155,50 @@ const MOCK_USERS = [
                 textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
             }
         }, [replyContent]);
+
+        // 입력 변화 감지 및 @멘션 트리거 로직
+        const handleContentChange = (e) => {
+            const text = e.target.value;
+            const selectionStart = e.target.selectionStart;
+            setReplyContent(text);
+            
+            // 커서 바로 앞의 단어 확인
+            const textBeforeCursor = text.slice(0, selectionStart);
+            const words = textBeforeCursor.split(/\s/);
+            const currentWord = words[words.length - 1];
+
+            if (currentWord.startsWith('@') && currentWord.length >= 1) {
+                setMentionQuery(currentWord.slice(1).toLowerCase()); // @ 제거하고 검색어 저장
+                setShowSuggestions(true);
+                setCursorLocation(selectionStart);
+            } else {
+                setShowSuggestions(false);
+            }
+        };
+
+        // 멘션 선택 시 처리
+        const selectUser = (handle) => {
+            const textBeforeCursor = replyContent.slice(0, cursorLocation);
+            const textAfterCursor = replyContent.slice(textareaRef.current.selectionStart);
+            
+            // 현재 입력 중인 @단어 찾아서 교체
+            const lastAtIndex = textBeforeCursor.lastIndexOf('@');
+            const newTextBefore = textBeforeCursor.slice(0, lastAtIndex) + `@${handle} `;
+            
+            setReplyContent(newTextBefore + textAfterCursor);
+            setShowSuggestions(false);
+            textareaRef.current.focus();
+        };
         
+        // MOCK_USERS를 기반으로 검색 (실제 앱에서는 모든 유저 프로필 state를 props로 받아오는 것이 좋음)
+        // 여기서는 전역 변수 MOCK_USERS를 사용합니다.
+        const filteredUsers = showSuggestions 
+            ? MOCK_USERS.filter(u => 
+                u.handle.toLowerCase().includes(mentionQuery) || 
+                u.name.toLowerCase().includes(mentionQuery)
+              ).slice(0, 5) // 최대 5명만 표시
+            : [];
+
         const formProfile = currentUserProfile || { 
             profile: '👤', 
             color: 'bg-gray-500', 
@@ -1164,12 +1213,35 @@ const MOCK_USERS = [
             setReplyContent(isMainPost ? '' : initialContent);
             setImageUrl('');
             setShowImageInput(false);
+            setShowSuggestions(false);
         };
 
         if (!currentUserId && !isMainPost) return null; 
 
         return (
-          <form onSubmit={handleReplySubmit} className={`flex flex-col ${isMainPost ? 'px-4 pb-4' : 'px-4 py-3'}`}>
+          <form onSubmit={handleReplySubmit} className={`flex flex-col relative ${isMainPost ? 'px-4 pb-4' : 'px-4 py-3'}`}>
+            {/* 멘션 추천 리스트 팝업 */}
+            {showSuggestions && filteredUsers.length > 0 && (
+                <div className="absolute bottom-full left-14 mb-2 w-64 bg-white dark:bg-gray-700 rounded-xl shadow-xl border border-gray-200 dark:border-gray-600 z-50 overflow-hidden">
+                    {filteredUsers.map(user => (
+                        <button
+                            key={user.uid}
+                            type="button"
+                            onClick={() => selectUser(user.handle)}
+                            className="flex items-center w-full px-4 py-3 hover:bg-gray-100 dark:hover:bg-gray-600 transition text-left"
+                        >
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center mr-2 ${user.color} text-white text-xs`}>
+                                {user.profile}
+                            </div>
+                            <div>
+                                <p className="font-bold text-sm text-gray-900 dark:text-white">{user.name}</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-300">@{user.handle}</p>
+                            </div>
+                        </button>
+                    ))}
+                </div>
+            )}
+
             <div className="flex">
                 <div className="mr-3 flex-shrink-0">
                     <ProfilePictureDisplay profile={formProfile} sizeClass="w-10 h-10 mt-2" textSizeClass="text-lg" />
@@ -1177,7 +1249,7 @@ const MOCK_USERS = [
                 <textarea
                     ref={textareaRef}
                     value={replyContent}
-                    onChange={(e) => setReplyContent(e.target.value)}
+                    onChange={handleContentChange} // 핸들러 변경됨
                     placeholder={isMainPost ? "지금 무슨 일이 일어나고 있나요?" : "답글을 게시하세요."}
                     className="flex-grow p-2 text-base bg-transparent focus:outline-none dark:text-gray-100 resize-none overflow-hidden mt-2"
                     rows="1"
@@ -1601,11 +1673,47 @@ const App = () => {
             }
         }, [currentUserId]);
 
+        // [수정됨] 게시물 실시간 감지 및 브라우저 알림 로직 추가
         useEffect(() => {
             if (!db || isLoading) return;
+
+            // 1. 브라우저 알림 권한 요청 (최초 1회)
+            if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
+                Notification.requestPermission();
+            }
+
             const postsColRef = collection(db, `/artifacts/${canvasAppId}/public/data/posts`);
             const q = query(postsColRef);
+            
+            // 변경사항을 추적하기 위해 snapshot.docChanges 사용
             const unsubscribe = onSnapshot(q, (snapshot) => {
+                // 알림 발송 로직
+                snapshot.docChanges().forEach((change) => {
+                    if (change.type === "added") {
+                        const newPostData = change.doc.data();
+                        const isNew = newPostData.timestamp && (Date.now() - newPostData.timestamp.toMillis() < 10000); // 10초 이내 생성된 글만 알림
+                        
+                        // 내가 쓴 글이 아니고, 나를 멘션했거나(@아이디), 내 글에 대한 답글인 경우
+                        if (currentUserId && isNew && newPostData.authorId !== currentUserId) {
+                            
+                            // 1. 나를 멘션한 경우
+                            const isMentioned = newPostData.mentions && newPostData.mentions.includes(currentUserId);
+                            
+                            // 2. 내 글에 답글을 단 경우 (replyToId가 내 글인지 확인 필요하지만, 여기서는 간단히 멘션 위주로 처리하거나 별도 로직 필요)
+                            // 여기서는 '멘션'되었을 때 확실하게 알림을 보냅니다.
+                            
+                            if (isMentioned) {
+                                if (Notification.permission === "granted") {
+                                    new Notification(`새로운 멘션 알림`, {
+                                        body: `${newPostData.authorName}님이 당신을 언급했습니다: "${newPostData.content}"`,
+                                        icon: newPostData.authorImageUrl || 'https://via.placeholder.com/128'
+                                    });
+                                }
+                            }
+                        }
+                    }
+                });
+
                 const fetchedPosts = snapshot.docs.map(doc => ({
                     id: doc.id,
                     ...doc.data(),
@@ -1618,7 +1726,6 @@ const App = () => {
                     mentions: doc.data().mentions || [],
                 }));
                 
-                // Firestore에서 가져온 데이터를 timestamp 기준으로 한 번 정렬해 줍니다.
                 const sortedPosts = fetchedPosts.sort((a, b) => {
                     const aTime = a.timestamp.getTime();
                     const bTime = b.timestamp.getTime();
@@ -1629,7 +1736,7 @@ const App = () => {
                 console.error("Firestore 데이터 불러오기 오류:", error);
             });
             return () => unsubscribe();
-        }, [db, isLoading]); 
+        }, [db, isLoading, currentUserId]); // currentUserId 의존성 추가
 
         const handleReplyClick = useCallback((post) => {
             if (App.currentUserId) {
